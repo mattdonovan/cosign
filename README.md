@@ -69,11 +69,42 @@ Flags: `--json` for machine output, `--no-write` to skip the saved file, `--help
 
 ## With an AI assistant
 
-In Cursor, Claude Code, Windsurf, or any IDE with an AI assistant that can run shell commands, just say what you want:
+There are two ways to use cosign from an AI assistant. Both work; they differ in friction.
+
+### Option A — shell command (works today, no setup)
+
+In Cursor, Claude Code, Windsurf, or any IDE whose AI assistant can run shell commands, just say what you want:
 
 > _"Use cosign to review the hero on this page."_
 
 The assistant will look at the workspace, pick the right file, and run `cosign review <path>` for you. The CLI's fuzzy matching means it works even when the assistant passes through a loose phrase.
+
+### Option B — MCP server (one-time setup)
+
+Cosign ships an MCP server so MCP-aware clients (Claude Code, Cursor, etc.) can call cosign as a first-class tool with structured arguments — no shell roundtrip, no parsing.
+
+To add it to Claude Code:
+
+```bash
+claude mcp add cosign cosign mcp
+```
+
+Or add it manually to `.mcp.json` (project-scoped) or `~/.claude/settings.json` (user-scoped):
+
+```json
+{
+  "mcpServers": {
+    "cosign": {
+      "command": "cosign",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+The server runs locally (stdio transport), uses the same provider env vars as the CLI, and writes its output to `.cosign/reviews/` in the workspace cwd — same as the CLI. No hosting, no extra credentials. Cursor and Windsurf accept similar configs; check their MCP docs for the exact field names.
+
+Once added, your assistant can call `cosign:review` directly. _"Review the hero"_ is a tool call, not a shell command.
 
 ## Use cases
 
