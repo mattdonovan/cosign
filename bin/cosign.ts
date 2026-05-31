@@ -307,18 +307,24 @@ async function main(): Promise<void> {
 
   if (htmlPath) {
     const url = `file://${htmlPath}`;
-    if (process.stdout.isTTY) {
-      console.log(C.dim(`\nView in browser: ${url}`));
-      console.log(C.dim(`Saved to        ${prettyPath(savedPath!)}`));
-      console.log(C.dim(`Took            ${(elapsedMs / 1000).toFixed(1)}s`));
-    }
 
-    // Auto-open the HTML in the user's browser. Default: open when stdout is
-    // a TTY (running cosign directly). When piped (e.g. Claude Code spawned
-    // us as a subprocess) we stay silent unless --open is explicit, so we
-    // don't pop browser windows the user didn't ask for.
-    const shouldOpen =
-      flags.open === true || (flags.open === null && process.stdout.isTTY);
+    // Always print the file URL, regardless of TTY. When a host AI like
+    // Claude Code is reformatting our output, a bare URL on its own line is
+    // the form most likely to survive intact.
+    const lines = process.stdout.isTTY
+      ? [
+          '',
+          C.dim('View in browser: ') + url,
+          C.dim('Saved to        ') + prettyPath(savedPath!),
+          C.dim('Took            ') + (elapsedMs / 1000).toFixed(1) + 's',
+        ]
+      : ['', `View in browser: ${url}`, `Took ${(elapsedMs / 1000).toFixed(1)}s`];
+    for (const l of lines) console.log(l);
+
+    // Auto-open the HTML in the user's default browser by default. Pass
+    // --no-open to suppress (useful when running over SSH, in CI, or when
+    // you really do just want the path).
+    const shouldOpen = flags.open !== false;
     if (shouldOpen) openInBrowser(htmlPath);
   }
 }
@@ -446,8 +452,13 @@ function printMarkdown(
     `**${review.decisions.length} decisions** — ${counts.sourced} sourced · ${counts.interpreted} interpreted · ${counts.ai} ai · _${(elapsedMs / 1000).toFixed(1)}s_`,
   );
   if (htmlPath) {
+    // Bare URL on its own line — auto-linked by most markdown renderers and
+    // far more likely to survive being reformatted by a host AI than the
+    // [name](url) link syntax was.
     lines.push('');
-    lines.push(`**View in browser:** [${basename(htmlPath)}](file://${htmlPath})`);
+    lines.push(`**View the full review:**`);
+    lines.push('');
+    lines.push(`file://${htmlPath}`);
   }
 
   for (const [category, items] of groupByCategory(review.decisions)) {
