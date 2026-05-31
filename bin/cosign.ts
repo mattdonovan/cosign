@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import 'dotenv/config';
+import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
@@ -27,6 +28,8 @@ The file argument can be:
 Flags:
   --json                           Print machine-readable JSON to stdout
   --no-write                       Skip writing the review file
+  --open / --no-open               Open / don't open the HTML review in your
+                                   browser (default: open when run from a TTY)
   --help, -h                       This message
 
 Setup:
@@ -40,16 +43,25 @@ Output:
 interface Flags {
   json: boolean;
   noWrite: boolean;
+  open: boolean | null; // null = default (auto-open when TTY)
   help: boolean;
   version: boolean;
 }
 
 function parseFlags(argv: string[]): { positional: string[]; flags: Flags } {
-  const flags: Flags = { json: false, noWrite: false, help: false, version: false };
+  const flags: Flags = {
+    json: false,
+    noWrite: false,
+    open: null,
+    help: false,
+    version: false,
+  };
   const positional: string[] = [];
   for (const a of argv) {
     if (a === '--json') flags.json = true;
     else if (a === '--no-write') flags.noWrite = true;
+    else if (a === '--open') flags.open = true;
+    else if (a === '--no-open') flags.open = false;
     else if (a === '--help' || a === '-h') flags.help = true;
     else if (a === '--version' || a === '-V') flags.version = true;
     else positional.push(a);
@@ -300,6 +312,30 @@ async function main(): Promise<void> {
       console.log(C.dim(`Saved to        ${prettyPath(savedPath!)}`));
       console.log(C.dim(`Took            ${(elapsedMs / 1000).toFixed(1)}s`));
     }
+
+    // Auto-open the HTML in the user's browser. Default: open when stdout is
+    // a TTY (running cosign directly). When piped (e.g. Claude Code spawned
+    // us as a subprocess) we stay silent unless --open is explicit, so we
+    // don't pop browser windows the user didn't ask for.
+    const shouldOpen =
+      flags.open === true || (flags.open === null && process.stdout.isTTY);
+    if (shouldOpen) openInBrowser(htmlPath);
+  }
+}
+
+function openInBrowser(htmlPath: string): void {
+  const cmd =
+    process.platform === 'darwin'
+      ? 'open'
+      : process.platform === 'win32'
+        ? 'start'
+        : 'xdg-open';
+  try {
+    const child = spawn(cmd, [htmlPath], { detached: true, stdio: 'ignore' });
+    child.on('error', () => {});
+    child.unref();
+  } catch {
+    // Browser-opening is best-effort; the file:// URL is already printed.
   }
 }
 
