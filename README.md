@@ -27,6 +27,14 @@ export ANTHROPIC_API_KEY=sk-ant-...
 cosign review src/components/Hero.tsx
 ```
 
+You can also point at a file by name or by description — cosign will fuzzy-match against your project tree:
+
+```bash
+cosign review hero
+cosign review the hero on this page
+cosign revew header   # typos are tolerated
+```
+
 You'll get a colored terminal summary of every design decision in the file, grouped by category and tagged by origin:
 
 - **SRC** — sourced from a design token, variable, or system constant
@@ -36,6 +44,14 @@ You'll get a colored terminal summary of every design decision in the file, grou
 The full ledger is saved to `.cosign/reviews/<timestamp>-<filename>.json` in the project's current directory.
 
 Flags: `--json` for machine output, `--no-write` to skip the saved file, `--help` for everything else.
+
+## With an AI assistant
+
+In Cursor, Claude Code, Windsurf, or any IDE with an AI assistant that can run shell commands, you can just say what you want:
+
+> _"Use cosign to review the hero on this page."_
+
+The assistant will look at the workspace, pick the right file, and run `cosign review <path>` for you. The CLI's fuzzy matching means it works even when the assistant passes through a loose phrase.
 
 ## Where it works
 
