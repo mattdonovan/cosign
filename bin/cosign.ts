@@ -3,11 +3,11 @@ import 'dotenv/config';
 import { existsSync, statSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
-import { AnthropicProvider } from '../server/generate/anthropic.ts';
+import { ProviderConfigError, resolveProvider } from '../server/generate/factory.ts';
 import type { Origin, PassOneResponse } from '../server/generate/schemas.ts';
+import { runCodeReview } from '../server/lens/code-review.ts';
 
 type Decision = PassOneResponse['decisions'][number];
-import { runCodeReview } from '../server/lens/code-review.ts';
 
 const COSIGN_VERSION = '0.1.0';
 
@@ -219,12 +219,15 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) {
-    console.error(
-      'ANTHROPIC_API_KEY is not set. Add it to your shell or a .env file and try again.',
-    );
-    process.exit(1);
+  let resolved;
+  try {
+    resolved = resolveProvider(process.env);
+  } catch (e) {
+    if (e instanceof ProviderConfigError) {
+      console.error(e.message);
+      process.exit(1);
+    }
+    throw e;
   }
 
   let filePath: string;
@@ -237,16 +240,16 @@ async function main(): Promise<void> {
 
   const source = await readFile(filePath, 'utf-8');
   const fileName = basename(filePath);
-  const model = process.env.COSIGN_MODEL_REVIEW?.trim() || 'claude-sonnet-4-6';
-  const provider = new AnthropicProvider(apiKey);
 
   if (!flags.json) {
-    console.error(C.dim('Reviewing ') + C.bold(fileName) + C.dim(` with ${model}…`));
+    console.error(
+      C.dim('Reviewing ') + C.bold(fileName) + C.dim(` with ${resolved.label}…`),
+    );
   }
 
   let review: PassOneResponse;
   try {
-    review = await runCodeReview(provider, model, { fileName, source });
+    review = await runCodeReview(resolved.provider, resolved.model, { fileName, source });
   } catch (e) {
     console.error('Review failed:', e instanceof Error ? e.message : String(e));
     process.exit(1);
@@ -261,7 +264,8 @@ async function main(): Promise<void> {
     const payload = {
       version: COSIGN_VERSION,
       lens: 'default',
-      model,
+      provider: resolved.name,
+      model: resolved.model,
       filePath,
       fileName,
       createdAt: new Date().toISOString(),
