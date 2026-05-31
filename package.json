@@ -16,6 +16,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "build:cli": "esbuild bin/cosign.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=bin/cosign.mjs && chmod +x bin/cosign.mjs",
+    "prepare": "npm run build:cli",
+    "update": "git pull && npm install --silent && echo '\\n✓ cosign updated. Try: cosign --version'",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit"
   },
   "dependencies": {

@@ -20,6 +20,14 @@ npm link
 
 `npm link` registers `cosign` as a global command on your machine, available from any directory.
 
+To pull a new version later, from the cosign clone:
+
+```bash
+npm run update
+```
+
+That's a shortcut for `git pull && npm install` (the `prepare` script rebuilds the CLI binary automatically). `npm link` doesn't need to run again — it already points at the rebuilt binary.
+
 ## Configure an AI provider
 
 Cosign runs as its own process and makes its own API calls. Your IDE's AI (Cursor, Claude Code, Windsurf, etc.) authenticates separately and doesn't share credentials with other tools — so cosign needs its own key. Set the env var for whichever provider you want to use, in your shell or in a `.env` file in the project you're reviewing:
