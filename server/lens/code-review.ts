@@ -1,3 +1,6 @@
+import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { jsonrepair } from 'jsonrepair';
 import type { Provider, UserContent } from '../generate/provider.ts';
 import { PassOneResponse } from '../generate/schemas.ts';
@@ -108,20 +111,40 @@ function numberLines(src: string): string {
     .join('\n');
 }
 
-function tryParseArray(s: string): unknown[] | null {
+type ParseAttempt = { strategy: string; error: string };
+
+function tryParseArray(s: string): { value: unknown[] | null; attempts: ParseAttempt[] } {
+  const attempts: ParseAttempt[] = [];
   try {
     const parsed = JSON.parse(s);
-    if (Array.isArray(parsed)) return parsed;
-  } catch {
-    // fall through to repair
+    if (Array.isArray(parsed)) return { value: parsed, attempts };
+    attempts.push({ strategy: 'JSON.parse', error: `parsed but was ${typeof parsed}` });
+  } catch (e) {
+    attempts.push({ strategy: 'JSON.parse', error: (e as Error).message });
   }
   try {
     const repaired = JSON.parse(jsonrepair(s));
-    if (Array.isArray(repaired)) return repaired;
-  } catch {
-    // give up
+    if (Array.isArray(repaired)) return { value: repaired, attempts };
+    attempts.push({ strategy: 'jsonrepair', error: `parsed but was ${typeof repaired}` });
+  } catch (e) {
+    attempts.push({ strategy: 'jsonrepair', error: (e as Error).message });
   }
-  return null;
+  // Last-ditch: extract the largest [...] substring and try again.
+  const first = s.indexOf('[');
+  const last = s.lastIndexOf(']');
+  if (first >= 0 && last > first) {
+    const slice = s.slice(first, last + 1);
+    try {
+      const parsed = JSON.parse(jsonrepair(slice));
+      if (Array.isArray(parsed)) return { value: parsed, attempts };
+      attempts.push({ strategy: 'bracket-extract', error: `parsed but was ${typeof parsed}` });
+    } catch (e) {
+      attempts.push({ strategy: 'bracket-extract', error: (e as Error).message });
+    }
+  } else {
+    attempts.push({ strategy: 'bracket-extract', error: 'no [...] found' });
+  }
+  return { value: null, attempts };
 }
 
 function normalizeToolInput<T>(input: T, arrayFields: string[]): T {
@@ -130,16 +153,26 @@ function normalizeToolInput<T>(input: T, arrayFields: string[]): T {
   for (const field of arrayFields) {
     const v = obj[field];
     if (typeof v !== 'string') continue;
-    const parsed = tryParseArray(v);
-    if (parsed) {
-      // Recovery succeeded silently — the model packed an array as a JSON
-      // string. No need to surface this to users; only log if recovery fails.
-      obj[field] = parsed;
+    const { value, attempts } = tryParseArray(v);
+    if (value) {
+      obj[field] = value;
       continue;
+    }
+    const dumpPath = join(tmpdir(), `cosign-parse-failure-${field}-${Date.now()}.txt`);
+    try {
+      writeFileSync(dumpPath, v);
+    } catch {
+      // best-effort dump
     }
     console.error(
       `[cosign] could not parse model output for "${field}" even after repair. length=${v.length}`,
     );
+    console.error(`[cosign] raw output written to ${dumpPath}`);
+    console.error(`[cosign] head: ${JSON.stringify(v.slice(0, 200))}`);
+    console.error(`[cosign] tail: ${JSON.stringify(v.slice(-200))}`);
+    for (const a of attempts) {
+      console.error(`[cosign]   ${a.strategy}: ${a.error}`);
+    }
   }
   return input;
 }
