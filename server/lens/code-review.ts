@@ -132,14 +132,13 @@ function normalizeToolInput<T>(input: T, arrayFields: string[]): T {
     if (typeof v !== 'string') continue;
     const parsed = tryParseArray(v);
     if (parsed) {
-      console.warn(
-        `[normalize] recovered stringified "${field}" (n=${parsed.length})`,
-      );
+      // Recovery succeeded silently — the model packed an array as a JSON
+      // string. No need to surface this to users; only log if recovery fails.
       obj[field] = parsed;
       continue;
     }
-    console.warn(
-      `[normalize] could not recover stringified "${field}" even after jsonrepair. length=${v.length}`,
+    console.error(
+      `[cosign] could not parse model output for "${field}" even after repair. length=${v.length}`,
     );
   }
   return input;

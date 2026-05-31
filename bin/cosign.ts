@@ -247,6 +247,7 @@ async function main(): Promise<void> {
     );
   }
 
+  const t0 = Date.now();
   let review: PassOneResponse;
   try {
     review = await runCodeReview(resolved.provider, resolved.model, { fileName, source });
@@ -254,13 +255,16 @@ async function main(): Promise<void> {
     console.error('Review failed:', e instanceof Error ? e.message : String(e));
     process.exit(1);
   }
+  const elapsedMs = Date.now() - t0;
 
   let savedPath: string | null = null;
+  let htmlPath: string | null = null;
   if (!flags.noWrite) {
     const reviewDir = join(process.cwd(), '.cosign', 'reviews');
     await mkdir(reviewDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     savedPath = join(reviewDir, `${stamp}-${fileName}.json`);
+    htmlPath = join(reviewDir, `${stamp}-${fileName}.html`);
     const payload = {
       version: COSIGN_VERSION,
       lens: 'default',
@@ -269,9 +273,11 @@ async function main(): Promise<void> {
       filePath,
       fileName,
       createdAt: new Date().toISOString(),
+      elapsedMs,
       review,
     };
     await writeFile(savedPath, JSON.stringify(payload, null, 2));
+    await writeFile(htmlPath, renderHtml(payload));
   }
 
   if (flags.json) {
@@ -279,9 +285,21 @@ async function main(): Promise<void> {
     return;
   }
 
-  printPretty(review, filePath);
-  if (savedPath) {
-    console.log(C.dim(`\nSaved to ${prettyPath(savedPath)}`));
+  // TTY → colored ANSI. Anything else (piped, subprocess of Claude Code /
+  // Cursor / etc.) → markdown, which renders cleanly in those host UIs.
+  if (process.stdout.isTTY) {
+    printPretty(review, filePath);
+  } else {
+    printMarkdown(review, filePath, htmlPath, elapsedMs);
+  }
+
+  if (htmlPath) {
+    const url = `file://${htmlPath}`;
+    if (process.stdout.isTTY) {
+      console.log(C.dim(`\nView in browser: ${url}`));
+      console.log(C.dim(`Saved to        ${prettyPath(savedPath!)}`));
+      console.log(C.dim(`Took            ${(elapsedMs / 1000).toFixed(1)}s`));
+    }
   }
 }
 
@@ -363,6 +381,189 @@ function groupByCategory(items: Decision[]): Array<[string, Decision[]]> {
 function prettyPath(abs: string): string {
   const cwd = process.cwd();
   return abs.startsWith(cwd) ? abs.slice(cwd.length + 1) || basename(abs) : abs;
+}
+
+// ----- markdown output (used when stdout isn't a TTY: piped, subprocess) -----
+
+function originBadge(origin: Origin): string {
+  if (origin === 'sourced') return '`SRC`';
+  if (origin === 'interpreted') return '`INT`';
+  return '`AI`';
+}
+
+function printMarkdown(
+  review: PassOneResponse,
+  filePath: string,
+  htmlPath: string | null,
+  elapsedMs: number,
+): void {
+  const counts = {
+    sourced: review.decisions.filter((d) => d.origin === 'sourced').length,
+    interpreted: review.decisions.filter((d) => d.origin === 'interpreted').length,
+    ai: review.decisions.filter((d) => d.origin === 'ai').length,
+  };
+
+  const lines: string[] = [];
+  lines.push(`# ${prettyPath(filePath)}`);
+  lines.push('');
+  lines.push(
+    `**${review.decisions.length} decisions** — ${counts.sourced} sourced · ${counts.interpreted} interpreted · ${counts.ai} ai · _${(elapsedMs / 1000).toFixed(1)}s_`,
+  );
+  if (htmlPath) {
+    lines.push('');
+    lines.push(`**View in browser:** [${basename(htmlPath)}](file://${htmlPath})`);
+  }
+
+  for (const [category, items] of groupByCategory(review.decisions)) {
+    lines.push('');
+    lines.push(`## ${category} (${items.length})`);
+    lines.push('');
+    for (const item of items) {
+      lines.push(
+        `- ${originBadge(item.origin)} **${item.summary}** \`${item.region}\``,
+      );
+      if (item.whyItMatters && item.whyItMatters.trim().length > 0) {
+        lines.push(`  - _${item.whyItMatters}_`);
+      }
+      if (item.sourceRef) {
+        lines.push(`  - source: \`${item.sourceRef}\``);
+      }
+    }
+  }
+
+  console.log(lines.join('\n'));
+}
+
+// ----- HTML viewer (self-contained file written next to the JSON) -----
+
+interface ReviewPayload {
+  version: string;
+  lens: string;
+  provider: string;
+  model: string;
+  filePath: string;
+  fileName: string;
+  createdAt: string;
+  elapsedMs: number;
+  review: PassOneResponse;
+}
+
+function renderHtml(p: ReviewPayload): string {
+  const counts = {
+    sourced: p.review.decisions.filter((d) => d.origin === 'sourced').length,
+    interpreted: p.review.decisions.filter((d) => d.origin === 'interpreted').length,
+    ai: p.review.decisions.filter((d) => d.origin === 'ai').length,
+  };
+
+  const sections = groupByCategory(p.review.decisions)
+    .map(([category, items]) => {
+      const cards = items
+        .map(
+          (d) => `
+        <article class="card origin-${d.origin}">
+          <header>
+            <span class="origin">${d.origin}</span>
+            <span class="region">${esc(d.region)}</span>
+          </header>
+          <p class="summary">${esc(d.summary)}</p>
+          ${d.whyItMatters ? `<p class="why">${esc(d.whyItMatters)}</p>` : ''}
+          ${d.sourceRef ? `<p class="source">↳ <code>${esc(d.sourceRef)}</code></p>` : ''}
+        </article>`,
+        )
+        .join('');
+      return `
+      <section>
+        <h2>${esc(category)} <span class="count">${items.length}</span></h2>
+        <div class="cards">${cards}</div>
+      </section>`;
+    })
+    .join('');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cosign — ${esc(p.fileName)}</title>
+<style>
+  :root {
+    --canvas: #121212; --surface: #1a1a1a; --surface-2: #1f1f1f;
+    --fg: #fafafa; --muted: rgba(250,250,250,0.6); --subtle: rgba(250,250,250,0.4);
+    --line: rgba(250,250,250,0.08); --line-strong: rgba(250,250,250,0.16);
+    --ai: #FFC400; --ai-soft: rgba(255,196,0,0.12);
+    --src: #0CC2A4; --src-soft: rgba(12,194,164,0.12);
+    --int: #7dd3fc; --int-soft: rgba(125,211,252,0.12);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --sans: 'Inter Tight', 'Inter', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 48px 32px; max-width: 960px; margin-inline: auto;
+    background: var(--canvas); color: var(--fg);
+    font-family: var(--sans); font-size: 14px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  header.top { margin-bottom: 32px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .kind { font-family: var(--mono); font-size: 12px; color: var(--subtle);
+    letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+  .file { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .meta { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 12px;
+    display: flex; gap: 16px; flex-wrap: wrap; }
+  .meta b { font-weight: 600; }
+  .meta .n-ai { color: var(--ai); }
+  .meta .n-int { color: var(--int); }
+  .meta .n-src { color: var(--src); }
+  section { margin-top: 32px; }
+  section h2 { margin: 0 0 12px; font-family: var(--mono); font-size: 12px;
+    color: var(--subtle); letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; }
+  section h2 .count { color: var(--subtle); margin-left: 6px; font-weight: 400; }
+  .cards { display: flex; flex-direction: column; gap: 8px; }
+  .card { padding: 12px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface); display: flex; flex-direction: column; gap: 6px; }
+  .card.origin-ai { border-color: var(--ai-soft); background: var(--ai-soft); }
+  .card.origin-interpreted { background: var(--int-soft); }
+  .card.origin-sourced { background: var(--src-soft); }
+  .card header { display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; }
+  .origin { padding: 2px 6px; border-radius: 999px; font-weight: 600; text-transform: uppercase; }
+  .origin-ai .origin { background: var(--ai-soft); color: var(--ai); }
+  .origin-interpreted .origin { background: var(--int-soft); color: var(--int); }
+  .origin-sourced .origin { background: var(--src-soft); color: var(--src); }
+  .region { color: var(--subtle); }
+  .summary { margin: 0; color: var(--fg); }
+  .why { margin: 0; color: var(--muted); font-size: 13px; }
+  .source { margin: 0; font-family: var(--mono); font-size: 11px; color: var(--subtle); }
+  .source code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--fg); }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="kind">cosign review · ${esc(p.lens)} lens</div>
+  <h1>${esc(p.fileName)}</h1>
+  <div class="file">${esc(p.filePath)}</div>
+  <div class="meta">
+    <span><b>${p.review.decisions.length}</b> decisions</span>
+    <span class="n-src"><b>${counts.sourced}</b> sourced</span>
+    <span class="n-int"><b>${counts.interpreted}</b> interpreted</span>
+    <span class="n-ai"><b>${counts.ai}</b> ai</span>
+    <span>${esc(p.provider)} · ${esc(p.model)}</span>
+    <span>${(p.elapsedMs / 1000).toFixed(1)}s</span>
+    <span>${esc(new Date(p.createdAt).toLocaleString())}</span>
+  </div>
+</header>
+${sections}
+</body>
+</html>`;
+}
+
+function esc(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 main().catch((e) => {
