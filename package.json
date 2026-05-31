@@ -1,0 +1,47 @@
+{
+  "name": "cosign",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Keep a human as the author of design decisions when an AI is doing the production.",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "cosign": "./bin/cosign.mjs"
+  },
+  "scripts": {
+    "dev": "concurrently -n vite,api -c green,cyan \"vite\" \"tsx watch server/index.ts\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build:cli": "esbuild bin/cosign.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=bin/cosign.mjs && chmod +x bin/cosign.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "@argos-ci/cli": "^5.0.4",
+    "@fontsource/inter": "^5.1.0",
+    "@fontsource/inter-tight": "^5.1.0",
+    "@hono/node-server": "^1.13.0",
+    "@modelcontextprotocol/sdk": "^1.10.0",
+    "dotenv": "^16.4.0",
+    "esbuild": "^0.24.0",
+    "hono": "^4.6.0",
+    "html-to-image": "^1.11.13",
+    "jsonrepair": "^3.14.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

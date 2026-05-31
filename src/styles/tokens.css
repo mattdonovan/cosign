@@ -1,0 +1,50 @@
+:root {
+  /* Surfaces */
+  --canvas: #121212;
+  --surface: #1a1a1a;
+  --surface-2: #1f1f1f;
+
+  /* Ink */
+  --foreground: #FAFAFA;
+  --muted: rgba(250, 250, 250, 0.6);
+  --subtle: rgba(250, 250, 250, 0.4);
+  --line: rgba(250, 250, 250, 0.08);
+  --line-strong: rgba(250, 250, 250, 0.16);
+
+  /* Signal */
+  --debt: #FFC400;
+  --debt-soft: rgba(255, 196, 0, 0.12);
+  --debt-strong: rgba(255, 196, 0, 0.32);
+  --decided: #0CC2A4;
+  --decided-soft: rgba(12, 194, 164, 0.12);
+  --decided-strong: rgba(12, 194, 164, 0.32);
+  --danger: #fb7185;
+  --danger-soft: rgba(251, 113, 133, 0.10);
+  --danger-strong: rgba(251, 113, 133, 0.32);
+
+  /* Type */
+  --font-sans: 'Inter Tight', 'Inter', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --t-display: 32px;
+  --t-h1: 22px;
+  --t-h2: 16px;
+  --t-body: 14px;
+  --t-small: 13px;
+  --t-mono: 12px;
+  --t-tag: 10px;
+
+  /* Space */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+
+  /* Radii */
+  --r-1: 4px;
+  --r-2: 8px;
+  --r-3: 12px;
+}
